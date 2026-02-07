@@ -40,7 +40,9 @@ def on_message(client, userdata, msg):
 
 # ===== MQTT setup =====
 client = mqtt.Client()
-client.connect("localhost", 1883)
+client.username_pw_set("campusiq", "camPusiq@404")
+client.tls_set()  # IMPORTANT for port 8883
+client.connect("79a024032c3340f1b31ae7145332b97d.s1.eu.hivemq.cloud", 8883)
 client.subscribe("campus/#")
 client.on_message = on_message
 
