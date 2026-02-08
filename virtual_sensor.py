@@ -9,39 +9,54 @@ PORT = 8883
 USERNAME = "campusiq"
 PASSWORD = "camPusiq@404"
 
-# ===== Virtual Campus Layout =====
-ROOMS = {
-    "A101": ["temp", "humidity", "power"],
-    "A102": ["temp", "humidity"],
-    "A103": ["temp", "power"],
-    "LAB1": ["temp", "humidity", "power"],
-    "LAB2": ["temp", "humidity", "power"],
-    "LIB1": ["temp", "humidity"],
-    "C201": ["temp", "power"],
-    "C202": ["temp", "power"],
-    "C203": ["temp"],
-    "D301": ["temp", "humidity"],
-    "D302": ["temp", "humidity"],
-    "D303": ["temp", "power"],
-    "E401": ["temp", "humidity"],
-    "E402": ["temp"],
-    "E403": ["temp", "power"],
-    "F501": ["temp", "humidity"],
-    "F502": ["temp"],
-    "G601": ["temp", "power"],
-    "H701": ["temp", "humidity"]
-}
+# ===== Sensor List (same for all rooms) =====
+SENSORS = ["temp", "humidity", "power", "moisture", "light", "gas", "PIR"]
 
-# ===== Sensor Behavior =====
+# ===== Room Generation =====
+ROOMS = {}
+
+# 12 Labs: 001L → 011L
+for i in range(1, 12):
+    room_id = f"{i:03d}L"
+    ROOMS[room_id] = SENSORS
+
+# 8 Classrooms: 013C → 020C
+for i in range(13, 21):
+    room_id = f"{i:03d}C"
+    ROOMS[room_id] = SENSORS
+
 def generate_value(sensor):
     if sensor == "temp":
-        return round(random.uniform(24, 35), 2)
+        # Indoor temperature (°C)
+        return round(random.uniform(22.0, 34.0), 2)
+
     elif sensor == "humidity":
-        return round(random.uniform(40, 75), 2)
+        # Indoor relative humidity (%)
+        return round(random.uniform(35.0, 75.0), 2)
+
     elif sensor == "power":
-        return round(random.uniform(200, 1200), 1)
+        # Classroom/lab power consumption (Watts)
+        return round(random.uniform(150.0, 1200.0), 1)
+
+    elif sensor == "moisture":
+        # Soil / floor moisture (%)
+        return round(random.uniform(10.0, 60.0), 1)
+
+    elif sensor == "light":
+        # Indoor light intensity (lux)
+        return round(random.uniform(100.0, 900.0), 1)
+
+    elif sensor == "gas":
+        # Gas concentration (ppm, MQ sensors range)
+        return round(random.uniform(200.0, 1200.0), 1)
+
+    elif sensor == "PIR":
+        # Motion detected (0 or 1)
+        return random.choice([0, 1])
+
     else:
-        return 0
+        return None
+
 
 # ===== MQTT Setup =====
 client = mqtt.Client()
