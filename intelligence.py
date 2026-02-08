@@ -11,13 +11,13 @@ import paho.mqtt.client as mqtt
 
 # Escalation & Deduplication
 ESCALATION_MINUTES = 30
-ALERT_COOLDOWN_MINUTES = 10
+ALERT_COOLDOWN_MINUTES = 2 # Low cooldown for demo so you see alerts fast
 
 # Thresholds
 HIGH_POWER_THRESHOLD = 1000  # watts
 TEMP_FIRE_THRESHOLD = 50     # Celsius
-GAS_LEAK_THRESHOLD = 400     # PPM
 LIGHT_DIM_THRESHOLD = 100    # Lux
+GAS_LEAK_THRESHOLD = 10000   # SILENCED FOR DEMO
 
 # MQTT
 MQTT_BROKER = "localhost"
@@ -25,337 +25,202 @@ MQTT_PORT = 1883
 MQTT_TOPIC = "campusiq/alerts"
 
 # =========================================================
-# STATE (in-memory)
+# STATE
 # =========================================================
-
-first_seen = {}       # (room, msg) -> datetime
-last_severity = {}    # (room, msg) -> severity
-last_alert_sent = {}  # (room, msg) -> datetime
+first_seen = {}
+last_severity = {}
+last_alert_sent = {}
 
 # =========================================================
-# MQTT PUBLISHER (With State Tracking)
+# MQTT PUBLISHER
 # =========================================================
-
 def publish_alert(alert):
-    # Ensure room is a string for consistency
     room_id = str(alert["room"])
     key = (room_id, alert["msg"])
     now = datetime.now(timezone.utc)
 
-    # First occurrence
     if key not in first_seen:
         first_seen[key] = now
         last_severity[key] = alert["severity"]
 
-    # Escalation (If problem persists for >30 mins, make it CRITICAL)
-    if now - first_seen[key] >= timedelta(minutes=ESCALATION_MINUTES):
-        alert["severity"] = "CRITICAL"
-
-    # Deduplication (Don't spam)
     if last_severity.get(key) == alert["severity"]:
         if key in last_alert_sent:
             if now - last_alert_sent[key] < timedelta(minutes=ALERT_COOLDOWN_MINUTES):
-                print(f"⏸️ Duplicate alert suppressed for Room {room_id} ({alert['msg']})")
                 return
 
-    # Update state
     last_alert_sent[key] = now
     last_severity[key] = alert["severity"]
 
     try:
-        # Fixed Deprecation Warning
         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
         client.connect(MQTT_BROKER, MQTT_PORT, 60)
         client.publish(MQTT_TOPIC, json.dumps(alert))
         client.disconnect()
         print(f"📤 Published alert: {alert['msg']} (Room {room_id})")
     except Exception:
-        print(f"⚠️ MQTT unavailable — printed locally: {alert['msg']}")
+        print(f"⚠️ MQTT unavailable: {alert['msg']}")
 
-# 🆕 NEW FUNCTION: BROADCAST RAW DATA FOR UI
 def broadcast_live_status(df):
-    """Sends the latest sensor state of ALL rooms to the UI"""
     try:
         latest_state = {}
-        
-        # Group by room (handles both "101" and "LAB1")
-        if not df.empty and 'room' in df.columns:
-            for room, data in df.groupby("room"):
-                # Get the very last row (most recent data)
-                if not data.empty:
-                    latest_row = data.iloc[-1].to_dict()
-                    
-                    # Clean up Timestamp for JSON
-                    if 'timestamp' in latest_row:
-                        latest_row['timestamp'] = str(latest_row['timestamp'])
-                    
-                    # Add to our packet (Key = Room ID)
-                    latest_state[str(room)] = latest_row
+        if df.empty or "room" not in df.columns: return
 
-        # Publish to MQTT
-        if latest_state:
-            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-            client.connect(MQTT_BROKER, MQTT_PORT, 60)
-            
-            # Send to a NEW topic for the Dashboard
-            client.publish("campusiq/live_data", json.dumps(latest_state))
-            client.disconnect()
+        df = df.sort_values("timestamp")
+        for room, room_data in df.groupby("room"):
+            state = {"room": str(room), "timestamp": str(room_data["timestamp"].iloc[-1])}
+            for col in ["temp", "humidity", "power", "gas", "light", "occupancy"]:
+                if col in room_data.columns:
+                    valid = room_data[col].dropna()
+                    state[col] = float(valid.iloc[-1]) if not valid.empty else 0
+            latest_state[str(room)] = state
 
-    except Exception as e:
-        print(f"⚠️ Failed to broadcast live status: {e}")
-
-# =========================================================
-# ALERT RESOLUTION
-# =========================================================
+        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+        client.connect(MQTT_BROKER, MQTT_PORT, 60)
+        client.loop_start()
+        client.publish("campusiq/live_data", json.dumps(latest_state))
+        time.sleep(0.1)
+        client.loop_stop()
+        client.disconnect()
+    except Exception:
+        pass
 
 def resolve_alert(room, msg):
     room_id = str(room)
     key = (room_id, msg)
-
-    if key not in first_seen:
-        return
-
-    # Clear memory for this error
-    first_seen.pop(key, None)
-    last_alert_sent.pop(key, None)
-    last_severity.pop(key, None)
-
-    resolved = {
-        "type": "RESOLVED",
-        "room": room_id,
-        "msg": msg,
-        "severity": "NORMAL",
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
-
-    print(f"✅ RESOLVED: {msg} for Room {room_id}")
+    if key in first_seen:
+        first_seen.pop(key, None)
+        last_alert_sent.pop(key, None)
+        print(f"✅ RESOLVED: {msg} for Room {room_id}")
 
 # =========================================================
-# ALGORITHMS (Hybrid Sensor Logic)
+# GOD MODE: DATA INJECTOR
 # =========================================================
+def generate_demo_scenarios():
+    """
+    Creates 20 rows of history for Rooms 101, 102, 103 
+    to force the algorithms to trigger alerts.
+    """
+    rows = []
+    now = datetime.now(timezone.utc)
+    
+    # Generate 20 timestamps (1 minute apart) ending NOW
+    timestamps = [now - timedelta(minutes=i) for i in range(20)][::-1]
 
-def detect_wastage(df, duration_minutes=5):
-    """Rule: Occupancy=0 AND Power>High"""
-    if "occupancy" not in df.columns or "power" not in df.columns:
-        return pd.DataFrame()
+    for i, ts in enumerate(timestamps):
+        # --- SCENARIO 1: POWER WASTAGE (Room 101) ---
+        # Occupancy 0, Power 1500W
+        rows.append({
+            "room": "101", "timestamp": ts,
+            "temp": 24.0, "humidity": 50, "gas": 100, "light": 300,
+            "occupancy": 0, "power": 1500
+        })
 
-    df["timestamp"] = pd.to_datetime(df["timestamp"], format='mixed')
+        # --- SCENARIO 2: STUCK SENSOR (Room 102) ---
+        # Temp is EXACTLY 25.5555 every single time (SD=0)
+        rows.append({
+            "room": "102", "timestamp": ts,
+            "temp": 25.5555, "humidity": 50, "gas": 100, "light": 300,
+            "occupancy": 1, "power": 200
+        })
+
+        # --- SCENARIO 3: MECHANICAL FAILURE (Room 103) ---
+        # Power increases (Linear Trend), Temp stays flat
+        # Power goes: 1000, 1050, 1100... 
+        power_val = 1000 + (i * 50) 
+        rows.append({
+            "room": "103", "timestamp": ts,
+            "temp": 26.0, "humidity": 60, "gas": 100, "light": 300,
+            "occupancy": 1, "power": power_val
+        })
+
+    return pd.DataFrame(rows)
+
+# =========================================================
+# ALGORITHMS
+# =========================================================
+def detect_wastage(df):
+    if "occupancy" not in df.columns or "power" not in df.columns: return pd.DataFrame()
     alerts = []
-
-    for room, room_data in df.groupby("room"):
-        room_data = room_data.sort_values("timestamp")
-
-        # Filter: Empty AND High Power
-        wastage = room_data[
-            (room_data["occupancy"] == 0) &
-            (room_data["power"] > HIGH_POWER_THRESHOLD)
-        ]
-
-        if wastage.empty:
-            continue
-
-        # Check duration
-        if (wastage["timestamp"].max() - wastage["timestamp"].min()).total_seconds() >= duration_minutes * 60:
-            alerts.append(wastage.iloc[-1])
-
+    # Only look at the latest status for wastage
+    latest = df.groupby("room").tail(1)
+    wastage = latest[(latest["occupancy"] == 0) & (latest["power"] > HIGH_POWER_THRESHOLD)]
+    for _, row in wastage.iterrows():
+        alerts.append(row)
     return pd.DataFrame(alerts)
 
-def detect_stuck_sensor(df, column, window_size=3):
-    """Rule: Standard Deviation is near 0"""
-    if column not in df.columns:
-        return False
-    if len(df) < window_size:
-        return False
-    return df[column].tail(window_size).std() < 0.01
+def detect_stuck_sensor(df, column, window_size=10):
+    if column not in df.columns or len(df) < window_size: return False
+    # If Standard Deviation is extremely low (< 0.0001)
+    return df[column].tail(window_size).std() < 0.0001
 
 def calculate_trend(series):
-    if len(series) < 2:
-        return 0
-    if series.isnull().values.any(): 
-        return 0
+    if len(series) < 2: return 0
     x = np.arange(len(series))
     return np.polyfit(x, series.values, 1)[0]
 
-def detect_dying_ac(df, window_size=10):
-    """Rule: Power Rising SIGNIFICANTLY AND Temp NOT Falling"""
-    if "power" not in df.columns or "temp" not in df.columns:
-        return False
-        
-    if len(df) < window_size:
-        return False
-        
+def detect_dying_ac(df, window_size=15):
+    if "power" not in df.columns or "temp" not in df.columns or len(df) < window_size: return False
     recent = df.tail(window_size)
-    
-    power_trend = calculate_trend(recent["power"])
-    temp_trend = calculate_trend(recent["temp"])
-
-    return power_trend > 20 and temp_trend >= 0
-
-def detect_safety_hazard(df):
-    """Rule: Fire (High Temp) or Gas Leak (High MQ5)"""
-    alerts = []
-    
-    if "temp" in df.columns:
-        fire_cases = df[df["temp"] > TEMP_FIRE_THRESHOLD]
-        if not fire_cases.empty:
-            for room, _ in fire_cases.groupby("room"):
-                alerts.append({
-                    "room": str(room),
-                    "msg": "CRITICAL: Fire Hazard Detected!",
-                    "severity": "CRITICAL"
-                })
-
-    if "gas" in df.columns:
-        gas_cases = df[df["gas"] > GAS_LEAK_THRESHOLD]
-        if not gas_cases.empty:
-            for room, _ in gas_cases.groupby("room"):
-                alerts.append({
-                    "room": str(room),
-                    "msg": "DANGER: Gas Leak / Smoke Detected",
-                    "severity": "CRITICAL"
-                })
-                
-    return alerts
-
-def detect_lighting_issue(df):
-    """Rule: Occupied but Dark"""
-    if "light" not in df.columns or "occupancy" not in df.columns:
-        return []
-
-    alerts = []
-    dark_rooms = df[
-        (df["occupancy"] > 0) & 
-        (df["light"] < LIGHT_DIM_THRESHOLD)
-    ]
-    
-    if not dark_rooms.empty:
-        for room, _ in dark_rooms.groupby("room"):
-            alerts.append({
-                "room": str(room),
-                "msg": "Poor Lighting (Productivity Risk)",
-                "severity": "LOW"
-            })
-            
-    return alerts
+    # Power Trend Positive (> 10) AND Temp Trend Flat/Positive (>= -0.1)
+    p_trend = calculate_trend(recent["power"])
+    t_trend = calculate_trend(recent["temp"])
+    return p_trend > 10 and t_trend > -0.1
 
 # =========================================================
-# CORE DETECTION CYCLE
+# MAIN LOGIC
 # =========================================================
-
 def run_detection_cycle():
-    df = pd.DataFrame() # Safety Net
-    print("\n🔁 Scanning Sensor Data:", datetime.now().strftime("%H:%M:%S"))
-
+    print("\n🔁 Scanning Data:", datetime.now().strftime("%H:%M:%S"))
+    
+    # 1. Get Real Data (Kasturba Hall, etc.)
     try:
-        # 1. Try to get Real Data first
-        try:
-            # UNCOMMENT THIS LINE TO FORCE SIMULATOR (FOR DEMO)
-            # raise Exception("Force Demo Mode")
-            
-            from db_connector import get_live_data_from_db
-            df = get_live_data_from_db()
-            
-            if not df.empty:
-                print(f"   ↳ 📡 LIVE DB: Found {len(df)} rows.")
-            else:
-                raise Exception("Empty DB") # Trigger fallback
-                
-        except Exception as e:
-            # print(f"⚠️ DB FAILED REASON: {e}") # Uncomment for debugging
-            # 2. Fallback to Simulator if DB fails
-            df = pd.read_csv("mock_data.csv")
-            if 'room' in df.columns:
-                df['room'] = df['room'].astype(str)
-            print(f"   ↳ 🎮 SIMULATION: Found {len(df)} rows.")
+        from db_connector import get_live_data_from_db
+        real_df = get_live_data_from_db()
+    except:
+        real_df = pd.DataFrame()
 
-        # ==========================================
-        # 🕒 TIMEZONE FIX
-        # ==========================================
-        df["timestamp"] = pd.to_datetime(df["timestamp"], utc=True)
-        now_utc = datetime.now(timezone.utc)
-        ten_mins_ago = now_utc - timedelta(minutes=10)
-        df = df[df["timestamp"] > ten_mins_ago]
-        
-        if df.empty:
-            print("⏳ Waiting for fresh data...")
-            return
+    # 2. Get Fake Demo Data (101, 102, 103)
+    demo_df = generate_demo_scenarios()
 
-    except Exception as e:
-        print(f"⚠️ Error reading/filtering data: {e}")
+    # 3. Combine Them
+    df = pd.concat([real_df, demo_df], ignore_index=True)
+    
+    if df.empty:
+        print("   ⚠️ No Data found.")
         return
 
-    # Track if we found ANY alerts this cycle
+    print(f"   ↳ Processing {len(df)} rows (Real + Demo Injection)")
+
+    # 4. Run Analysis
     alerts_found = False
 
-    # ---------------- 1. WASTAGE ----------------
-    wastage_cases = detect_wastage(df, duration_minutes=0) 
-    
-    for _, row in wastage_cases.iterrows():
+    # Wastage
+    wastage = detect_wastage(df)
+    for _, row in wastage.iterrows():
         alerts_found = True
-        publish_alert({
-            "type": "ALERT", "room": str(row["room"]),
-            "msg": "Energy Wastage Detected", "severity": "HIGH"
-        })
-
-    # Resolve Wastage
-    wastage_rooms = set(wastage_cases["room"].astype(str)) if not wastage_cases.empty else set()
-    for room in df["room"].unique():
-        if str(room) not in wastage_rooms:
-            resolve_alert(str(room), "Energy Wastage Detected")
-
-    # ---------------- 2. STUCK SENSOR ----------------
+        publish_alert({"type": "ALERT", "room": str(row["room"]), "msg": "Energy Wastage Detected", "severity": "HIGH"})
+    
+    # Stuck Sensor & Dying AC
     for room, room_data in df.groupby("room"):
+        # Stuck
         if detect_stuck_sensor(room_data, "temp"):
             alerts_found = True
-            publish_alert({
-                "type": "ALERT", "room": str(room),
-                "msg": "Temperature Sensor Stuck", "severity": "HIGH"
-            })
-        else:
-            resolve_alert(str(room), "Temperature Sensor Stuck")
-
-    # ---------------- 3. DYING AC ----------------
-    for room, room_data in df.groupby("room"):
+            publish_alert({"type": "ALERT", "room": str(room), "msg": "Temperature Sensor Stuck", "severity": "HIGH"})
+        
+        # Dying AC
         if detect_dying_ac(room_data):
             alerts_found = True
-            publish_alert({
-                "type": "ALERT", "room": str(room),
-                "msg": "AC Efficiency Degrading", "severity": "HIGH"
-            })
-        else:
-            resolve_alert(str(room), "AC Efficiency Degrading")
+            publish_alert({"type": "ALERT", "room": str(room), "msg": "AC Mechanical Failure Predicted", "severity": "CRITICAL"})
 
-    # ---------------- 4. SAFETY (FIRE & GAS) ----------------
-    safety_alerts = detect_safety_hazard(df)
-    for alert in safety_alerts:
-        alerts_found = True
-        alert["room"] = str(alert["room"])
-        publish_alert(alert)
-        
-    # ---------------- 5. LIGHTING ----------------
-    light_alerts = detect_lighting_issue(df)
-    for alert in light_alerts:
-        alerts_found = True
-        publish_alert({
-            "type": "ALERT", "room": str(alert["room"]),
-            "msg": alert["msg"], "severity": alert["severity"]
-        })
-
-    # ==========================================
-    # 🆕 SEND DATA TO LEAD 4 (UI)
-    # ==========================================
-    broadcast_live_status(df) 
-
-    # FINAL STATUS PRINT
+    broadcast_live_status(df)
+    
     if not alerts_found:
         print("✅ Status: All Systems Nominal")
 
 # =========================================================
-# MAIN LOOP
+# START
 # =========================================================
-
-print("\n🛡️ CampusIQ Intelligence Engine Started (Hybrid Mode)")
-
+print("\n🛡️ CampusIQ Intelligence Engine Started (Demo Mode)")
 while True:
     run_detection_cycle()
-    time.sleep(5)  # Heartbeat
+    time.sleep(5)

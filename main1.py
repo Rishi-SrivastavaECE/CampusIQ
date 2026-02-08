@@ -3,8 +3,10 @@ import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 import json
+import time
+import paho.mqtt.client as mqtt
 
 # ============ PAGE CONFIG ============
 st.set_page_config(
@@ -37,92 +39,107 @@ st.markdown("""
         color: white;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
     }
+    
+    /* Card Styling for Digital Twin */
+    div.stInfo {
+        background-color: rgba(255, 255, 255, 0.8);
+        border: 1px solid #ddd;
+        border-radius: 8px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
-# ============ SESSION STATE ============
-if 'alerts' not in st.session_state:
-    st.session_state.alerts = []
+# ============ MQTT CLIENT SETUP ============
 
-if 'sensor_data' not in st.session_state:
-    st.session_state.sensor_data = None
+# Initialize Session State
+if 'mqtt_data' not in st.session_state:
+    st.session_state.mqtt_data = {}
 
-# ============ MOCK DATA GENERATION ============
-def generate_mock_sensors():
-    """Generate 21 sensors: 20 rooms (001-010, 101-110) + Kasturba Hall"""
+if 'last_update' not in st.session_state:
+    st.session_state.last_update = datetime.now()
+
+# Callback when message is received
+def on_message(client, userdata, msg):
+    try:
+        topic = msg.topic
+        payload = json.loads(msg.payload.decode())
+        
+        # Update Session State with new data
+        if "live_data" in topic:
+            st.session_state.mqtt_data = payload
+            st.session_state.last_update = datetime.now()
+            
+    except Exception as e:
+        print(f"Error parsing MQTT: {e}")
+
+# Start MQTT in a background thread
+if 'mqtt_client' not in st.session_state:
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+    client.on_message = on_message
+    
+    try:
+        # CONNECT TO LOCALHOST
+        client.connect("localhost", 1883, 60)
+        client.subscribe("campusiq/live_data") 
+        client.loop_start() 
+        
+        st.session_state.mqtt_client = client
+        print("✅ GUI Successfully Connected to Intelligence Engine")
+    except Exception as e:
+        st.error(f"⚠️ MQTT Connection Failed: {e}. Is intelligence.py running?")
+
+# ============ DATA CONVERTER (JSON -> DATAFRAME) ============
+def generate_live_sensors():
+    """Converts the raw JSON from Intelligence.py into the Dashboard DataFrame"""
+    
+    data = st.session_state.mqtt_data
     sensors = []
     
-    # Define all locations with their properties
-    locations = [
-        # Rooms 001-010 (All AC installed)
-        {'name': 'Room 001', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 002', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 003', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 004', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 005', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 006', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 007', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 008', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 009', 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 010', 'ac': True, 'type': 'Normal Room'},
-        
-        # Rooms 101-110 (101, 103, 107 are Labs with AC; rest are normal rooms without AC)
-        {'name': 'Room 101', 'ac': True, 'type': 'Lab with AC'},
-        {'name': 'Room 102', 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 103', 'ac': True, 'type': 'Lab with AC'},
-        {'name': 'Room 104', 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 105', 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 106', 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 107', 'ac': True, 'type': 'Lab with AC'},
-        {'name': 'Room 108', 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 109', 'ac': False, 'type': 'Normal Room'},
-        
-        # Kasturba Hall (AC installed)
-        {'name': 'Kasturba Hall', 'ac': True, 'type': 'Hall with AC'},
-    ]
-    
-    for i, loc_info in enumerate(locations, 1):
-        # AC rooms: cooler temperature (22-26°C)
-        # Non-AC rooms: slightly warmer temperature (24-28°C)
-        if loc_info['ac']:
-            temp = np.random.normal(24, 1.5)  # AC rooms: cooler
-        else:
-            temp = np.random.normal(25.5, 2)  # Non-AC rooms: warmer
-        
-        humidity = np.random.normal(50, 10)
-        
-        # Status determination
-        if 20 < temp < 28:
-            status = 'normal'
-        elif 18 < temp < 30:
-            status = 'warning'
-        else:
-            status = 'alert'
-        
-        sensors.append({
-            'Sensor ID': f'S{i:03d}',
-            'Location': loc_info['name'],
-            'Type': 'Temperature' if i % 2 == 0 else 'Humidity',
-            'Value': f'{temp:.1f}°C' if i % 2 == 0 else f'{humidity:.1f}%',
-            'Numeric': temp if i % 2 == 0 else humidity,
-            'Status': status,
-            'AC': '✅ Yes' if loc_info['ac'] else '❌ No',
-            'Room Type': loc_info['type'],
-            'Last Update': (datetime.now() - timedelta(seconds=np.random.randint(5, 60))).strftime('%H:%M:%S')
-        })
-    
-    return pd.DataFrame(sensors)
+    # If no data has arrived yet, return empty
+    if not data:
+        return pd.DataFrame()
 
-def get_sensor_statistics(df):
-    """Calculate statistics from sensor data"""
-    temp_sensors = df[df['Type'] == 'Temperature']
-    humidity_sensors = df[df['Type'] == 'Humidity']
-    
-    avg_temp = temp_sensors['Numeric'].mean() if len(temp_sensors) > 0 else 0
-    avg_humidity = humidity_sensors['Numeric'].mean() if len(humidity_sensors) > 0 else 0
-    anomalies = len(df[df['Status'] != 'normal'])
-    
-    return avg_temp, avg_humidity, anomalies
+    # Loop through the rooms in the JSON packet
+    for room_id, readings in data.items():
+        try:
+            temp = float(readings.get('temp', 0))
+            humidity = float(readings.get('humidity', 0))
+            occupancy = int(readings.get('occupancy', 0))
+            timestamp = readings.get('timestamp', str(datetime.now().time()))
+        except:
+            continue
+
+        # Determine Status Colors
+        status = 'normal'
+        if temp > 28: status = 'warning'
+        if temp > 50: status = 'alert' # Fire!
+
+        # Smart Room Type Logic
+        room_type = 'Classroom'
+        has_ac = False
+        if 'LAB' in str(room_id).upper() or (str(room_id).isdigit() and int(room_id) < 100):
+            room_type = 'Lab / Server Room'
+            has_ac = True
+
+        # Add Row
+        sensors.append({
+            'Sensor ID': str(room_id),
+            'Location': f"Room {room_id}",
+            'Temp': temp,
+            'Humidity': humidity,
+            'Occupancy': occupancy,
+            'Status': status,
+            'AC': has_ac,
+            'Room Type': room_type,
+            'Last Update': timestamp
+        })
+
+    # Sort by Room ID for neat display
+    df = pd.DataFrame(sensors)
+    if not df.empty:
+        df = df.sort_values('Sensor ID')
+        
+    return df
 
 # ============ HEADER ============
 col_header1, col_header2 = st.columns([3, 1])
@@ -131,32 +148,41 @@ with col_header1:
     st.markdown("**Real-Time Sensor Monitoring & Anomaly Detection Platform**")
 
 with col_header2:
-    st.metric("⏰ Time", datetime.now().strftime('%H:%M:%S'))
+    st.metric("⏰ Last Sync", st.session_state.last_update.strftime('%H:%M:%S'))
 
 st.markdown("---")
 
 # ============ STATUS BAR (KPIs) ============
 st.subheader("📊 System Status")
 
-sensor_df = generate_mock_sensors()
-avg_temp, avg_humidity, num_anomalies = get_sensor_statistics(sensor_df)
+# GET LIVE DATA
+sensor_df = generate_live_sensors()
+
+# Calculate Stats
+if not sensor_df.empty:
+    avg_temp = sensor_df['Temp'].mean()
+    avg_humidity = sensor_df['Humidity'].mean()
+    num_anomalies = len(sensor_df[sensor_df['Status'] != 'normal'])
+    active_sensors = len(sensor_df)
+else:
+    avg_temp, avg_humidity, num_anomalies, active_sensors = 0, 0, 0, 0
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
 with col1:
-    st.metric("🟢 Active Sensors", f"{len(sensor_df)}/20", "100% Online")
+    st.metric("🟢 Active Sensors", f"{active_sensors}", "Online")
 
 with col2:
-    st.metric("🌡️ Avg Temperature", f"{avg_temp:.1f}°C", "+0.5°C")
+    st.metric("🌡️ Avg Temperature", f"{avg_temp:.1f}°C", "Live")
 
 with col3:
-    st.metric("💨 Avg Humidity", f"{avg_humidity:.1f}%", "-2%")
+    st.metric("💨 Avg Humidity", f"{avg_humidity:.1f}%", "Live")
 
 with col4:
-    st.metric("⚠️ Anomalies", num_anomalies, "+1 this hour")
+    st.metric("⚠️ Anomalies", num_anomalies, "Attention Needed")
 
 with col5:
-    health_pct = (20 - num_anomalies) / 20 * 100
+    health_pct = max(0, (20 - num_anomalies) / 20 * 100)
     st.metric("📡 System Health", f"{health_pct:.0f}%", "Operational")
 
 st.markdown("---")
@@ -169,322 +195,119 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs(
 # ============ TAB 1: ANALYTICS ============
 with tab1:
     st.subheader("📈 Real-Time Analytics")
-    
     col_chart1, col_chart2 = st.columns(2)
     
     with col_chart1:
-        st.markdown("### 🌡️ Temperature Trend (Last Hour)")
-        time_range = pd.date_range(start=datetime.now() - timedelta(hours=1), periods=60, freq='1min')
-        temps = 24 + 2 * np.sin(np.linspace(0, 2*np.pi, 60)) + np.random.normal(0, 0.5, 60)
-        
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=time_range, 
-            y=temps, 
-            mode='lines+markers',
-            name='Temperature',
-            line=dict(color='#667eea', width=3),
-            fill='tozeroy',
-            fillcolor='rgba(102, 126, 234, 0.1)',
-            hovertemplate='<b>%{x|%H:%M}</b><br>Temp: %{y:.1f}°C<extra></extra>'
-        ))
-        
-        fig.add_hline(y=28, line_dash="dash", line_color="red", annotation_text="⚠️ High Threshold")
-        fig.add_hline(y=20, line_dash="dash", line_color="blue", annotation_text="❄️ Low Threshold")
-        
-        fig.update_layout(
-            hovermode='x unified',
-            height=350,
-            margin=dict(l=0, r=0, t=30, b=0),
-            xaxis_title="Time",
-            yaxis_title="Temperature (°C)",
-            plot_bgcolor='rgba(240, 244, 255, 0.5)',
-            paper_bgcolor='rgba(255, 255, 255, 0.8)'
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        st.markdown("### 🌡️ Temperature Distribution")
+        if not sensor_df.empty:
+            fig = px.histogram(sensor_df, x="Temp", nbins=20, title="Temp Distribution", color_discrete_sequence=['#667eea'])
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Waiting for data...")
     
     with col_chart2:
-        st.markdown("### 💨 Sensor Health Distribution")
-        
-        status_counts = sensor_df['Status'].value_counts()
-        colors = {'normal': '#10b981', 'warning': '#f59e0b', 'alert': '#ef4444'}
-        
-        fig = go.Figure(data=[
-            go.Pie(
-                labels=status_counts.index,
-                values=status_counts.values,
-                marker=dict(colors=[colors.get(x, '#666') for x in status_counts.index]),
-                textposition='inside',
-                textinfo='label+percent',
-                hovertemplate='<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>'
-            )
-        ])
-        
-        fig.update_layout(height=350, margin=dict(l=0, r=0, t=30, b=0))
-        st.plotly_chart(fig, use_container_width=True)
-    
-    col_metric1, col_metric2, col_metric3 = st.columns(3)
-    
-    with col_metric1:
-        st.info(f"📊 **Total Data Points**: {len(sensor_df) * 60}\n\nData collected over the last hour from all sensors")
-    
-    with col_metric2:
-        st.success(f"✅ **Response Time**: 2.3ms\n\nAverage latency for anomaly detection")
-    
-    with col_metric3:
-        st.warning(f"⚡ **Energy Consumption**: 156 kWh\n\nCampus power usage today")
+        st.markdown("### 💨 Sensor Status")
+        if not sensor_df.empty:
+            status_counts = sensor_df['Status'].value_counts()
+            fig = px.pie(values=status_counts.values, names=status_counts.index, title="System Health", 
+                         color_discrete_map={'normal':'#10b981', 'warning':'#f59e0b', 'alert':'#ef4444'})
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Waiting for data...")
 
-# ============ TAB 2: DIGITAL TWIN ============
+# ============ TAB 2: DIGITAL TWIN (RESTORED!) ============
 with tab2:
     st.subheader("🏗️ Campus Floor Plan - Real-Time Status")
     st.markdown("Green = Normal | Yellow = Warning | Red = Alert")
     
-    rooms = [
-        {'name': 'Room 001', 'temp': 24.2, 'status': 'normal', 'humidity': 48, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 002', 'temp': 24.2, 'status': 'normal', 'humidity': 50, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 003', 'temp': 23.8, 'status': 'normal', 'humidity': 49, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 004', 'temp': 24.5, 'status': 'normal', 'humidity': 51, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 005', 'temp': 23.9, 'status': 'normal', 'humidity': 48, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 006', 'temp': 24.1, 'status': 'normal', 'humidity': 50, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 007', 'temp': 23.7, 'status': 'normal', 'humidity': 49, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 008', 'temp': 24.3, 'status': 'normal', 'humidity': 51, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 009', 'temp': 23.6, 'status': 'normal', 'humidity': 48, 'ac': True, 'type': 'Normal Room'},
-        {'name': 'Room 010', 'temp': 24.4, 'status': 'normal', 'humidity': 50, 'ac': True, 'type': 'Normal Room'},
+    if sensor_df.empty:
+        st.warning("⏳ Waiting for sensor stream from Intelligence Engine...")
+    else:
+        # Create a grid of 5 columns
+        cols = st.columns(5)
         
-        {'name': 'Room 101', 'temp': 23.2, 'status': 'normal', 'humidity': 47, 'ac': True, 'type': 'Lab with AC'},
-        {'name': 'Room 102', 'temp': 26.5, 'status': 'warning', 'humidity': 60, 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 103', 'temp': 23.5, 'status': 'normal', 'humidity': 48, 'ac': True, 'type': 'Lab with AC'},
-        {'name': 'Room 104', 'temp': 25.8, 'status': 'warning', 'humidity': 58, 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 105', 'temp': 26.2, 'status': 'warning', 'humidity': 59, 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 106', 'temp': 25.5, 'status': 'warning', 'humidity': 57, 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 107', 'temp': 23.8, 'status': 'normal', 'humidity': 49, 'ac': True, 'type': 'Lab with AC'},
-        {'name': 'Room 108', 'temp': 26.0, 'status': 'warning', 'humidity': 59, 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Room 109', 'temp': 25.9, 'status': 'warning', 'humidity': 58, 'ac': False, 'type': 'Normal Room'},
-        {'name': 'Kasturba Hall', 'temp': 23.9, 'status': 'normal', 'humidity': 50, 'ac': True, 'type': 'Hall with AC'},
-    ]
-    
-    cols = st.columns(5)
-    for idx, room in enumerate(rooms):
-        with cols[idx % 5]:
-            if room['status'] == 'alert':
-                emoji, color = '🔴', 'alert'
-            elif room['status'] == 'warning':
-                emoji, color = '🟡', 'warning'
-            else:
-                emoji, color = '🟢', 'normal'
-            
-            ac_status = '❄️ AC' if room['ac'] else '🌡️ No AC'
-            
-            st.info(f"""
-            {emoji} **{room['name']}**
-            
-            🌡️ {room['temp']}°C
-            💨 {room['humidity']}%
-            
-            {ac_status}
-            📌 {room['type']}
-            
-            **{room['status'].upper()}**
-            """)
+        # Loop through every room in our live dataframe
+        for idx, row in sensor_df.iterrows():
+            with cols[idx % 5]: # Cycle through columns
+                
+                # Dynamic Emoji & Color Logic
+                if row['Status'] == 'alert':
+                    emoji = '🔴'
+                    status_text = "CRITICAL"
+                elif row['Status'] == 'warning':
+                    emoji = '🟡'
+                    status_text = "WARNING"
+                else:
+                    emoji = '🟢'
+                    status_text = "NORMAL"
+                
+                ac_icon = '❄️ AC' if row['AC'] else '🌡️ No AC'
+                occ_icon = '👤 Occupied' if row['Occupancy'] > 0 else 'Checking...'
+                
+                # Render Card
+                st.info(f"""
+                **{emoji} {row['Location']}**
+                
+                🌡️ **{row['Temp']:.1f}°C** |  💨 {row['Humidity']:.0f}%
+                
+                {ac_icon} | {occ_icon}
+                
+                **{status_text}**
+                """)
 
 # ============ TAB 3: SENSOR DATA ============
 with tab3:
     st.subheader("📋 All Sensor Readings")
     
-    col_filter1, col_filter2, col_filter3 = st.columns(3)
+    filter_status = st.multiselect("Filter Status", ['normal', 'warning', 'alert'], default=['normal', 'warning', 'alert'])
     
-    with col_filter1:
-        status_filter = st.multiselect(
-            "Filter by Status",
-            ['normal', 'warning', 'alert'],
-            default=['normal', 'warning', 'alert']
+    if not sensor_df.empty:
+        display_df = sensor_df[sensor_df['Status'].isin(filter_status)]
+        st.dataframe(
+            display_df[['Location', 'Temp', 'Humidity', 'Occupancy', 'Status', 'Last Update']],
+            use_container_width=True,
+            hide_index=True,
+            height=400
         )
-    
-    with col_filter2:
-        type_filter = st.multiselect(
-            "Filter by Type",
-            ['Temperature', 'Humidity'],
-            default=['Temperature', 'Humidity']
-        )
-    
-    with col_filter3:
-        search_term = st.text_input("Search by Location or Sensor ID")
-    
-    filtered_df = sensor_df[
-        (sensor_df['Status'].isin(status_filter)) &
-        (sensor_df['Type'].isin(type_filter))
-    ]
-    
-    if search_term:
-        filtered_df = filtered_df[
-            filtered_df['Location'].str.contains(search_term, case=False) |
-            filtered_df['Sensor ID'].str.contains(search_term, case=False)
-        ]
-    
-    st.dataframe(
-        filtered_df[['Sensor ID', 'Location', 'Type', 'Value', 'Status', 'AC', 'Room Type', 'Last Update']],
-        use_container_width=True,
-        hide_index=True,
-        height=400
-    )
-    
-    col_stat1, col_stat2, col_stat3 = st.columns(3)
-    
-    with col_stat1:
-        normal_count = len(filtered_df[filtered_df['Status'] == 'normal'])
-        st.metric("✅ Normal Sensors", normal_count)
-    
-    with col_stat2:
-        warning_count = len(filtered_df[filtered_df['Status'] == 'warning'])
-        st.metric("⚠️ Warning Sensors", warning_count)
-    
-    with col_stat3:
-        alert_count = len(filtered_df[filtered_df['Status'] == 'alert'])
-        st.metric("🔴 Alert Sensors", alert_count)
 
 # ============ TAB 4: ALERTS ============
 with tab4:
     st.subheader("🔔 Real-Time Alert Log")
+    st.info("ℹ️ Critical alerts (Fire, Wastage) are broadcast to the Security Console.")
     
-    alerts = [
-        {
-            'time': '14:45',
-            'location': 'Room 102',
-            'type': 'Temperature High',
-            'severity': 'CRITICAL',
-            'value': '26.5°C',
-            'description': 'Temperature exceeded safe threshold'
-        },
-        {
-            'time': '14:43',
-            'location': 'Room 104',
-            'type': 'Temperature High',
-            'severity': 'WARNING',
-            'value': '25.8°C',
-            'description': 'Temperature above comfort zone'
-        },
-        {
-            'time': '14:40',
-            'location': 'Room 105',
-            'type': 'Temperature High',
-            'severity': 'WARNING',
-            'value': '26.2°C',
-            'description': 'Humidity exceeds comfortable range'
-        },
-        {
-            'time': '14:38',
-            'location': 'Room 108',
-            'type': 'Energy Wastage',
-            'severity': 'INFO',
-            'value': 'AC Running (Empty)',
-            'description': 'HVAC active but no occupancy detected'
-        },
-    ]
-    
-    col_alert_filter1, col_alert_filter2 = st.columns([3, 1])
-    
-    with col_alert_filter1:
-        severity_filter = st.multiselect(
-            "Filter by Severity",
-            ['CRITICAL', 'WARNING', 'INFO'],
-            default=['CRITICAL', 'WARNING', 'INFO']
-        )
-    
-    with col_alert_filter2:
-        if st.button("🗑️ Clear All Alerts"):
-            st.success("✅ All alerts cleared!")
-    
-    for alert in alerts:
-        if alert['severity'] in severity_filter:
-            if alert['severity'] == 'CRITICAL':
-                st.error(f"""
-                **🔴 CRITICAL** | **{alert['location']}** | {alert['time']}
-                
-                **Alert Type**: {alert['type']}
-                **Current Value**: {alert['value']}
-                **Description**: {alert['description']}
-                """)
+    # Show active alerts from the dataframe
+    if not sensor_df.empty:
+        alerts = sensor_df[sensor_df['Status'].isin(['warning', 'alert'])]
+        
+        if alerts.empty:
+            st.success("✅ No active alerts at this moment.")
+        
+        for _, row in alerts.iterrows():
+            msg = f"High Temperature Detected ({row['Temp']}°C)" if row['Temp'] > 28 else "Abnormal Sensor Reading"
+            severity = "CRITICAL" if row['Status'] == 'alert' else "WARNING"
             
-            elif alert['severity'] == 'WARNING':
-                st.warning(f"""
-                **🟡 WARNING** | **{alert['location']}** | {alert['time']}
-                
-                **Alert Type**: {alert['type']}
-                **Current Value**: {alert['value']}
-                **Description**: {alert['description']}
-                """)
-            
+            if severity == "CRITICAL":
+                st.error(f"🔴 **{severity}** | {row['Location']} | {msg}")
             else:
-                st.info(f"""
-                **ℹ️ INFO** | **{alert['location']}** | {alert['time']}
-                
-                **Alert Type**: {alert['type']}
-                **Current Value**: {alert['value']}
-                **Description**: {alert['description']}
-                """)
+                st.warning(f"🟡 **{severity}** | {row['Location']} | {msg}")
 
 # ============ TAB 5: CONTROL ============
 with tab5:
     st.subheader("🎮 Demo Control Panel")
-    st.markdown("Use these buttons to simulate real-world scenarios for demonstration purposes.")
+    st.markdown("Use these buttons to force simulation states for the judges.")
     
-    st.markdown("---")
-    st.markdown("### 🔥 Critical Scenarios")
+    col_c1, col_c2 = st.columns(2)
+    with col_c1:
+        st.markdown("### 🔥 Critical Scenarios")
+        st.button("🔥 Simulate Fire (Press '5' in Terminal)")
+        st.button("⚡ Simulate Wastage (Press '1' in Terminal)")
     
-    col_scenario1, col_scenario2 = st.columns(2)
-    
-    with col_scenario1:
-        if st.button("🚨 Trigger: Fire in Room 102", use_container_width=True):
-            st.error("✅ **SCENARIO INJECTED**: Room 102 temperature spiked to 45°C!")
-            st.error("- Fire detection system activated")
-            st.error("- Alert notification sent to campus security")
-            st.error("- HVAC shutdown initiated")
-    
-    with col_scenario2:
-        if st.button("❌ Trigger: Sensor Fault (S006)", use_container_width=True):
-            st.warning("✅ **SCENARIO INJECTED**: Sensor S006 marked as offline")
-            st.warning("- No data received for 5+ minutes")
-            st.warning("- Cross-validation with adjacent sensors activated")
-    
-    st.markdown("---")
-    st.markdown("### ⚡ Energy & Efficiency Scenarios")
-    
-    col_scenario3, col_scenario4 = st.columns(2)
-    
-    with col_scenario3:
-        if st.button("💡 Trigger: Energy Wastage Alert", use_container_width=True):
-            st.info("✅ **SCENARIO INJECTED**: Energy wastage detected in Room 104")
-            st.info("- AC running but occupancy = 0")
-            st.info("- Recommendation: Turn off HVAC")
-            st.info("- Estimated savings: 2.5 kWh/day")
-    
-    with col_scenario4:
-        if st.button("🌦️ Trigger: Weather Alert", use_container_width=True):
-            st.warning("✅ **SCENARIO INJECTED**: Extreme weather detected")
-            st.warning("- Incoming storm (40 km/h winds)")
-            st.warning("- Rooftop sensors recalibrated")
-    
-    st.markdown("---")
-    st.markdown("### 🔧 System Control")
-    
-    col_control1, col_control2 = st.columns(2)
-    
-    with col_control1:
-        if st.button("🔄 Refresh All Sensors", use_container_width=True):
-            st.success("✅ All sensors refreshed successfully")
-    
-    with col_control2:
-        if st.button("📊 Export Report", use_container_width=True):
-            st.success("✅ Report exported as PDF")
+    with col_c2:
+        st.markdown("### 🔧 System")
+        if st.button("🔄 Force Refresh GUI"):
+            st.rerun()
 
-# ============ FOOTER ============
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; color: #666; font-size: 12px; margin-top: 2rem;">
-    <p>🏢 <b>Smart Campus IoT Dashboard</b> | VIT Chennai | SENSE - School of Electronics Engineering</p>
-    <p>Last Updated: """ + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + """</p>
-    <p>© 2026 5G Technologies Hackathon</p>
-</div>
-""", unsafe_allow_html=True)
-
-
+# ============ AUTO-REFRESH ============
+# Auto-refresh every 2 seconds to keep the Digital Twin alive
+time.sleep(2)
+st.rerun()
