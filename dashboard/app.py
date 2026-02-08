@@ -4,8 +4,8 @@ import os
 import pandas as pd
 from streamlit_autorefresh import st_autorefresh
 
-LIVE_FILE = "live_data.json"
-ALERTS_FILE = "alerts.json"
+LIVE_FILE = "../Intelligence/live_data.json"
+ALERTS_FILE = "../Intelligence/alerts.json"
 
 st.set_page_config(page_title="CampusIQ Dashboard", layout="wide")
 
