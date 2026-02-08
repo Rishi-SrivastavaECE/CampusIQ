@@ -174,7 +174,7 @@ def run_detection_cycle():
     
     # 1. Get Real Data (Kasturba Hall, etc.)
     try:
-        from db_connector import get_live_data_from_db
+        from Intelligence.db_connector import get_live_data_from_db
         real_df = get_live_data_from_db()
     except:
         real_df = pd.DataFrame()
