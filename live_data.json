@@ -1,0 +1,235 @@
+{
+  "timestamp": "2026-02-08 16:12:50",
+  "data": {
+    "001L": {
+      "room": "001L",
+      "timestamp": "2026-02-08 10:42:44.388257+00:00",
+      "temp": 33.1,
+      "humidity": 42.25,
+      "power": 532.8,
+      "gas": 200.9,
+      "light": 283.9,
+      "occupancy": 0
+    },
+    "002L": {
+      "room": "002L",
+      "timestamp": "2026-02-08 10:42:44.560508+00:00",
+      "temp": 31.01,
+      "humidity": 39.37,
+      "power": 229.0,
+      "gas": 200.3,
+      "light": 890.4,
+      "occupancy": 0
+    },
+    "003L": {
+      "room": "003L",
+      "timestamp": "2026-02-08 10:42:44.617576+00:00",
+      "temp": 28.84,
+      "humidity": 36.14,
+      "power": 620.2,
+      "gas": 201.6,
+      "light": 291.7,
+      "occupancy": 0
+    },
+    "004L": {
+      "room": "004L",
+      "timestamp": "2026-02-08 10:42:44.749926+00:00",
+      "temp": 32.44,
+      "humidity": 45.55,
+      "power": 336.7,
+      "gas": 201.1,
+      "light": 487.2,
+      "occupancy": 0
+    },
+    "005L": {
+      "room": "005L",
+      "timestamp": "2026-02-08 10:42:44.925883+00:00",
+      "temp": 26.7,
+      "humidity": 58.83,
+      "power": 413.0,
+      "gas": 201.1,
+      "light": 667.6,
+      "occupancy": 0
+    },
+    "006L": {
+      "room": "006L",
+      "timestamp": "2026-02-08 10:42:44.973529+00:00",
+      "temp": 24.55,
+      "humidity": 64.08,
+      "power": 167.0,
+      "gas": 202.0,
+      "light": 523.3,
+      "occupancy": 0
+    },
+    "007L": {
+      "room": "007L",
+      "timestamp": "2026-02-08 10:42:45.132358+00:00",
+      "temp": 30.86,
+      "humidity": 45.04,
+      "power": 323.8,
+      "gas": 200.5,
+      "light": 109.1,
+      "occupancy": 0
+    },
+    "008L": {
+      "room": "008L",
+      "timestamp": "2026-02-08 10:42:45.199363+00:00",
+      "temp": 25.19,
+      "humidity": 59.16,
+      "power": 540.1,
+      "gas": 200.2,
+      "light": 238.7,
+      "occupancy": 0
+    },
+    "009L": {
+      "room": "009L",
+      "timestamp": "2026-02-08 10:42:45.317148+00:00",
+      "temp": 30.16,
+      "humidity": 56.09,
+      "power": 454.2,
+      "gas": 201.9,
+      "light": 402.1,
+      "occupancy": 0
+    },
+    "010L": {
+      "room": "010L",
+      "timestamp": "2026-02-08 10:42:45.381676+00:00",
+      "temp": 23.36,
+      "humidity": 57.69,
+      "power": 561.6,
+      "gas": 201.5,
+      "light": 336.2,
+      "occupancy": 0
+    },
+    "011L": {
+      "room": "011L",
+      "timestamp": "2026-02-08 10:42:45.598704+00:00",
+      "temp": 25.51,
+      "humidity": 67.43,
+      "power": 882.2,
+      "gas": 200.5,
+      "light": 314.4,
+      "occupancy": 0
+    },
+    "013C": {
+      "room": "013C",
+      "timestamp": "2026-02-08 10:42:45.723504+00:00",
+      "temp": 29.56,
+      "humidity": 72.19,
+      "power": 168.9,
+      "gas": 201.0,
+      "light": 199.6,
+      "occupancy": 0
+    },
+    "014C": {
+      "room": "014C",
+      "timestamp": "2026-02-08 10:42:45.574412+00:00",
+      "temp": 29.41,
+      "humidity": 74.36,
+      "power": 1057.6,
+      "gas": 200.9,
+      "light": 378.7,
+      "occupancy": 0
+    },
+    "015C": {
+      "room": "015C",
+      "timestamp": "2026-02-08 10:42:45.968422+00:00",
+      "temp": 22.42,
+      "humidity": 66.3,
+      "power": 923.7,
+      "gas": 200.9,
+      "light": 152.4,
+      "occupancy": 0
+    },
+    "016C": {
+      "room": "016C",
+      "timestamp": "2026-02-08 10:42:45.928435+00:00",
+      "temp": 32.72,
+      "humidity": 60.97,
+      "power": 205.8,
+      "gas": 201.9,
+      "light": 127.2,
+      "occupancy": 0
+    },
+    "017C": {
+      "room": "017C",
+      "timestamp": "2026-02-08 10:42:46.226007+00:00",
+      "temp": 25.21,
+      "humidity": 37.04,
+      "power": 223.3,
+      "gas": 200.7,
+      "light": 787.3,
+      "occupancy": 0
+    },
+    "018C": {
+      "room": "018C",
+      "timestamp": "2026-02-08 10:42:46.177952+00:00",
+      "temp": 31.61,
+      "humidity": 56.48,
+      "power": 462.7,
+      "gas": 200.4,
+      "light": 204.5,
+      "occupancy": 0
+    },
+    "019C": {
+      "room": "019C",
+      "timestamp": "2026-02-08 10:42:46.415967+00:00",
+      "temp": 33.58,
+      "humidity": 73.21,
+      "power": 1126.2,
+      "gas": 200.0,
+      "light": 695.0,
+      "occupancy": 0
+    },
+    "020C": {
+      "room": "020C",
+      "timestamp": "2026-02-08 10:42:46.457521+00:00",
+      "temp": 31.26,
+      "humidity": 59.97,
+      "power": 654.2,
+      "gas": 201.5,
+      "light": 330.0,
+      "occupancy": 0
+    },
+    "101": {
+      "room": "101",
+      "timestamp": "2026-02-08 10:42:50.019776+00:00",
+      "temp": 24.0,
+      "humidity": 50.0,
+      "power": 1500.0,
+      "gas": 100.0,
+      "light": 300.0,
+      "occupancy": 0.0
+    },
+    "102": {
+      "room": "102",
+      "timestamp": "2026-02-08 10:42:50.019776+00:00",
+      "temp": 25.5555,
+      "humidity": 50.0,
+      "power": 200.0,
+      "gas": 100.0,
+      "light": 300.0,
+      "occupancy": 1.0
+    },
+    "103": {
+      "room": "103",
+      "timestamp": "2026-02-08 10:42:50.019776+00:00",
+      "temp": 26.0,
+      "humidity": 60.0,
+      "power": 1950.0,
+      "gas": 100.0,
+      "light": 300.0,
+      "occupancy": 1.0
+    },
+    "KASTURBA HALL": {
+      "room": "KASTURBA HALL",
+      "timestamp": "2026-02-08 10:22:47.263969+00:00",
+      "temp": 24.0,
+      "humidity": 84.3,
+      "power": 613.0,
+      "gas": 0.0,
+      "light": 0,
+      "occupancy": 0
+    }
+  }
+}
