@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-02-08 16:10:54",
+  "alerts": [
+    {
+      "timestamp": "2026-02-08 16:10:54",
+      "alert": {
+        "type": "ALERT",
+        "room": "101",
+        "msg": "Temperature Sensor Stuck",
+        "severity": "HIGH"
+      }
+    }
+  ]
+}
