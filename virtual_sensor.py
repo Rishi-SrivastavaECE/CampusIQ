@@ -48,7 +48,7 @@ def generate_value(sensor):
 
     elif sensor == "gas":
         # Gas concentration (ppm, MQ sensors range)
-        return round(random.uniform(200.0, 1200.0), 1)
+        return round(random.uniform(200.0, 202.0), 1)
 
     elif sensor == "PIR":
         # Motion detected (0 or 1)
