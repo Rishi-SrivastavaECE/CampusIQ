@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 
 
 # ===== InfluxDB config =====
-INFLUX_URL = "http://host.docker.internal:8086"
-INFLUX_TOKEN = "O7-Vomi6Ie-yIyBBuH6GzfqYYet5kqBam0a1Clt90isca4c78Yd7Vlk2IEzgzjfnW6pnFh1XFtZePrTP53qTtw=="
+INFLUX_URL = 
+INFLUX_TOKEN =
 INFLUX_ORG = "CampusIQ"
 INFLUX_BUCKET = "sensor_data"
 
